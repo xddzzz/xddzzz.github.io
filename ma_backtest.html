@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>均线策略回测</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1115;
+      --panel: #171a21;
+      --muted: #8b93a7;
+      --text: #e8ecf3;
+      --line: #2a2f3a;
+      --green: #26c281;
+      --red: #ff5c5c;
+      --blue: #5aa7ff;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #1e2a3d 0, var(--bg) 42%);
+      color: var(--text);
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 14px 14px 24px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+    }
+    .desc {
+      margin: 0 0 10px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 13px;
+    }
+    .panel {
+      background: rgba(23, 26, 33, 0.9);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    }
+    .form {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0 12px;
+      background: #10131a;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--blue);
+    }
+    button {
+      height: 36px;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #3487ff, #6bd6ff);
+      color: #06111e;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: #11151d;
+      border-radius: 14px;
+      padding: 10px;
+    }
+    .card .k {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .card .v {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .green { color: var(--green); }
+    .red { color: var(--red); }
+    .muted { color: var(--muted); }
+    .section-title {
+      margin: 14px 0 8px;
+      font-size: 16px;
+    }
+    .signal-grid {
+      display: flex;
+      gap: 18px;
+      overflow-x: auto;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #10131a;
+    }
+    th, td {
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    th {
+      color: var(--muted);
+      background: #141923;
+      font-weight: 600;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 38vh;
+      border-radius: 14px;
+    }
+    .table-wrap thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    @media (max-width: 780px) {
+      .form, .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>均线策略回测</h1>
+    <p class="desc">买入：收盘价上穿5日均线，且收盘价大于120日均线，且120日均线向上。卖出：跌破买入价3%止损，或收盘价跌破5日/20日均线。</p>
+
+    <section class="panel">
+      <div class="form">
+        <label>股票代码
+          <input id="code" value="002531" placeholder="例如 002531" />
+        </label>
+        <label>回看天数
+          <input id="days" type="number" value="180" min="1" />
+        </label>
+        <label>单笔买入金额
+          <input id="amount" type="number" value="10000" min="1" />
+        </label>
+        <button id="run">开始回测</button>
+      </div>
+      <div id="status" class="desc" style="margin:14px 0 0;"></div>
+    </section>
+
+    <section id="summary" class="grid"></section>
+
+    <h2 class="section-title">当前买入信号</h2>
+    <section id="signal" class="panel muted">等待查询...</section>
+
+    <h2 class="section-title">交易明细</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>买入信号日</th>
+            <th>买入日</th>
+            <th>买入价</th>
+            <th>卖出信号日</th>
+            <th>卖出日</th>
+            <th>卖出价</th>
+            <th>卖出原因</th>
+            <th>成交方式</th>
+            <th>收益率</th>
+            <th>收益金额</th>
+            <th>是否盈利</th>
+          </tr>
+        </thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function marketPrefix(code) {
+      if (/^(600|601|603|605|688|689)/.test(code)) return 'sh';
+      if (/^(000|001|002|003|300|301)/.test(code)) return 'sz';
+      throw new Error('无法识别股票代码市场');
+    }
+
+    function toNum(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    function ma(values, n, index) {
+      if (index + 1 < n) return NaN;
+      let sum = 0;
+      for (let i = index - n + 1; i <= index; i++) sum += values[i];
+      return sum / n;
+    }
+
+    async function fetchText(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`请求失败：${res.status}`);
+      return res.text();
+    }
+
+    async function fetchTextWithEncoding(url, encoding) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`请求失败：${res.status}`);
+      return new TextDecoder(encoding).decode(await res.arrayBuffer());
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`请求失败：${res.status}`);
+      return res.json();
+    }
+
+    async function fetchName(code) {
+      const symbol = marketPrefix(code) + code;
+      const text = await fetchTextWithEncoding(`/tencent/quote?q=${symbol}`, 'gbk');
+      const match = text.match(/="([^"]+)";/);
+      if (!match) return code;
+      const parts = match[1].split('~');
+      return parts[1] || code;
+    }
+
+    async function fetchHistory(code, days) {
+      const symbol = marketPrefix(code) + code;
+      const count = Math.max(260, days + 180);
+      const data = await fetchJson(`/tencent/kline?param=${symbol},day,,,${count},qfq`);
+      const root = data?.data?.[symbol] || {};
+      const rows = root.qfqday || root.day || [];
+      return rows.map((row) => ({
+        date: row[0],
+        open: toNum(row[1]),
+        close: toNum(row[2]),
+        high: toNum(row[3]),
+        low: toNum(row[4]),
+        volume: toNum(row[5]),
+      })).filter((row) => Number.isFinite(row.close));
+    }
+
+    function checkCurrentSignal(rows) {
+      const closes = rows.map((row) => row.close);
+      const i = rows.length - 1;
+      const today = rows[i];
+      const yesterday = rows[i - 1];
+      const todayMa5 = ma(closes, 5, i);
+      const yesterdayMa5 = ma(closes, 5, i - 1);
+      const todayMa120 = ma(closes, 120, i);
+      const ma120FiveDaysAgo = ma(closes, 120, i - 5);
+      const cross = yesterday.close <= yesterdayMa5 && today.close > todayMa5;
+      const above120 = today.close > todayMa120;
+      const ma120Up = todayMa120 > ma120FiveDaysAgo;
+      return { today, todayMa5, todayMa120, ma120FiveDaysAgo, cross, above120, ma120Up, buy: cross && above120 && ma120Up };
+    }
+
+    function backtest(rows, days, amount) {
+      const closes = rows.map((row) => row.close);
+      const latest = new Date(rows[rows.length - 1].date);
+      const start = new Date(latest);
+      start.setDate(start.getDate() - days);
+      let startIndex = rows.findIndex((row) => new Date(row.date) >= start);
+      startIndex = Math.max(startIndex, 120);
+
+      const trades = [];
+      let position = null;
+
+      for (let i = startIndex; i < rows.length - 1; i++) {
+        const today = rows[i];
+        const yesterday = rows[i - 1];
+        const next = rows[i + 1];
+        const todayMa5 = ma(closes, 5, i);
+        const todayMa20 = ma(closes, 20, i);
+        const todayMa120 = ma(closes, 120, i);
+        const yesterdayMa5 = ma(closes, 5, i - 1);
+        const yesterdayMa20 = ma(closes, 20, i - 1);
+        const ma120FiveDaysAgo = ma(closes, 120, i - 5);
+
+        const buy = yesterday.close <= yesterdayMa5 && today.close > todayMa5 && today.close > todayMa120 && todayMa120 > ma120FiveDaysAgo;
+        const sell = (yesterday.close >= yesterdayMa5 && today.close < todayMa5) || (yesterday.close >= yesterdayMa20 && today.close < todayMa20);
+
+        if (!position) {
+          if (buy) position = { buySignal: today.date, buyDate: next.date, buyPrice: next.open };
+          continue;
+        }
+
+        const stopPrice = position.buyPrice * 0.97;
+        let exitPrice = null;
+        let sellSignal = null;
+        let sellDate = null;
+        let reason = null;
+        let method = null;
+
+        if (today.low <= stopPrice) {
+          exitPrice = today.open <= stopPrice ? today.open : stopPrice;
+          sellSignal = today.date;
+          sellDate = today.date;
+          method = today.open <= stopPrice ? '开盘止损' : '盘中止损';
+        } else if (sell) {
+          exitPrice = next.open;
+          sellSignal = today.date;
+          sellDate = next.date;
+          reason = '均线卖出';
+          method = '次日开盘';
+        } else {
+          continue;
+        }
+
+        const ret = exitPrice / position.buyPrice - 1;
+        if (!reason) reason = `止损${(ret * 100).toFixed(2)}%`;
+        trades.push({ ...position, sellSignal, sellDate, exitPrice, reason, method, ret, profit: ret * amount, win: ret > 0 });
+        position = null;
+      }
+
+      return { trades, startDate: rows[startIndex].date, endDate: rows[rows.length - 1].date };
+    }
+
+    function renderSummary(name, code, result, amount) {
+      const trades = result.trades;
+      const wins = trades.filter((trade) => trade.win).length;
+      const totalProfit = trades.reduce((sum, trade) => sum + trade.profit, 0);
+      const avg = trades.length ? trades.reduce((sum, trade) => sum + trade.ret, 0) / trades.length : 0;
+      const compound = trades.reduce((sum, trade) => sum * (1 + trade.ret), 1) - 1;
+      const maxWin = trades.length ? Math.max(...trades.map((trade) => trade.ret)) : 0;
+      const maxLoss = trades.length ? Math.min(...trades.map((trade) => trade.ret)) : 0;
+      const cards = [
+        ['股票', `${name} ${code}`],
+        ['数据区间', `${result.startDate} 至 ${result.endDate}`],
+        ['交易次数', `${trades.length} 次`],
+        ['胜率', trades.length ? `${(wins / trades.length * 100).toFixed(2)}%` : '0.00%'],
+        ['平均单笔收益', `${(avg * 100).toFixed(2)}%`],
+        ['累计复利收益', `${(compound * 100).toFixed(2)}%`],
+        ['最大单笔盈利', `${(maxWin * 100).toFixed(2)}%`],
+        ['最大单笔亏损', `${(maxLoss * 100).toFixed(2)}%`],
+        ['单笔买入金额', `${amount.toFixed(2)} 元`],
+        ['累计收益金额', `${totalProfit.toFixed(2)} 元`, totalProfit >= 0 ? 'green' : 'red'],
+      ];
+      $('summary').innerHTML = cards.map(([k, v, cls]) => `<div class="card"><div class="k">${k}</div><div class="v ${cls || ''}">${v}</div></div>`).join('');
+    }
+
+    function renderSignal(signal) {
+      $('signal').innerHTML = `
+        <div class="signal-grid">
+          <div>判断日期：${signal.today.date}</div>
+          <div>收盘价：${signal.today.close.toFixed(2)}</div>
+          <div>MA5：${signal.todayMa5.toFixed(2)}</div>
+          <div>MA120：${signal.todayMa120.toFixed(2)}</div>
+          <div>5日前MA120：${signal.ma120FiveDaysAgo.toFixed(2)}</div>
+          <div>上穿5日线：${signal.cross ? '是' : '否'}</div>
+          <div>大于120日线：${signal.above120 ? '是' : '否'}</div>
+          <div>120日线向上：${signal.ma120Up ? '是' : '否'}</div>
+          <div class="${signal.buy ? 'green' : 'red'}">当前买入：${signal.buy ? '是' : '否'}</div>
+          <div>推荐价格：${signal.buy ? `${signal.today.close.toFixed(2)} 附近` : '暂无'}</div>
+        </div>
+      `;
+    }
+
+    function renderTrades(trades) {
+      $('trades').innerHTML = trades.map((trade) => {
+        const cls = trade.win ? 'green' : 'red';
+        return `<tr>
+          <td>${trade.buySignal}</td>
+          <td>${trade.buyDate}</td>
+          <td>${trade.buyPrice.toFixed(2)}</td>
+          <td>${trade.sellSignal}</td>
+          <td>${trade.sellDate}</td>
+          <td>${trade.exitPrice.toFixed(2)}</td>
+          <td class="${cls}">${trade.reason}</td>
+          <td class="${cls}">${trade.method}</td>
+          <td class="${cls}">${(trade.ret * 100).toFixed(2)}%</td>
+          <td class="${cls}">${trade.profit.toFixed(2)}</td>
+          <td>${trade.win ? '是' : '否'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function run() {
+      const code = $('code').value.trim();
+      const days = Number($('days').value || 180);
+      const amount = Number($('amount').value || 10000);
+      $('status').textContent = '正在请求腾讯数据...';
+      try {
+        const [name, rows] = await Promise.all([fetchName(code), fetchHistory(code, days)]);
+        if (rows.length < 125) throw new Error('日线数据不足，无法计算120日均线');
+        const signal = checkCurrentSignal(rows);
+        const result = backtest(rows, days, amount);
+        renderSummary(name, code, result, amount);
+        renderSignal(signal);
+        renderTrades(result.trades);
+        $('status').textContent = `完成，共获取 ${rows.length} 条日线数据。`;
+      } catch (error) {
+        $('status').textContent = `失败：${error.message}`;
+      }
+    }
+
+    $('run').addEventListener('click', run);
+    run();
+  </script>
+</body>
+</html>
